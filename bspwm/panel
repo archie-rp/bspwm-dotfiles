@@ -1,0 +1,46 @@
+#! /bin/sh
+
+if xdo id -a "$PANEL_WM_NAME" > /dev/null ; then
+	printf "%s\n" "The panel is already running." >&2
+	exit 1
+fi
+
+trap 'trap - TERM; kill 0' INT TERM QUIT EXIT
+
+[ -e "$PANEL_FIFO" ] && rm "$PANEL_FIFO"
+mkfifo "$PANEL_FIFO"
+
+bspc config top_padding $PANEL_HEIGHT
+bspc subscribe report > "$PANEL_FIFO" &
+echo 'TArchierp' > "$PANEL_FIFO" &
+
+
+# Loop to check time, battery and volume status
+while true; do
+	AP=$(iwconfig wlp3s0 | grep 'ESSID:' | awk '{print $4}' | sed 's/ESSID://g' | sed 's/"//g')
+	Vol=$(pulseaudio-ctl | grep "Volume level" | cut -d":" -f 2 | grep -Eo "[0-9]+ %" | tr -d ' %')
+	Bat=$(acpi | egrep -o "[0-9]+%")
+	clock=$(date +'S%b %d %a %H:%M')
+	echo 'N' $AP > "$PANEL_FIFO" &
+	echo 'E⮞' > "$PANEL_FIFO" &
+	echo 'V' $Vol > "$PANEL_FIFO" &
+	echo 'Q%' > "$PANEL_FIFO" &
+	echo 'X⮏' > "$PANEL_FIFO" &
+	echo 'B' $Bat > "$PANEL_FIFO" &
+	echo $clock > "$PANEL_FIFO" &
+sleep 0.1s
+done &
+
+. panel_colors
+
+panel_bar < "$PANEL_FIFO" | lemonbar -a 32 "$PANEL_WM_NAME" -g x$PANEL_HEIGHT -f "$PANEL_FONT" -F "$COLOR_FOREGROUND" -B "$COLOR_BACKGROUND" | sh &
+wid=$(xdo id -a "$PANEL_WM_NAME")
+tries_left=20
+while [ -z "$wid" -a "$tries_left" -gt 0 ] ; do
+	sleep 0.05
+	wid=$(xdo id -a "$PANEL_WM_NAME")
+	tries_left=$((tries_left - 1))
+done
+[ -n "$wid" ] && xdo above -t "$(xdo id -N Bspwm -n root | sort | head -n 1)" "$wid"
+
+wait
